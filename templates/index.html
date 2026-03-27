@@ -33,6 +33,14 @@
             <button type="submit" class="button">Найти людей</button>
         </form>
 
+        <form class="upload-form upload-form--card" action="/search/folder" method="post" enctype="multipart/form-data">
+            <label class="upload-field">
+                <span>Папка с фотографиями</span>
+                <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp" webkitdirectory directory multiple required>
+            </label>
+            <button type="submit" class="button">Распознать папку</button>
+        </form>
+
         <form class="upload-form upload-form--card" action="/search/face" method="get">
             <label class="upload-field">
                 <span>Поиск по ID лица</span>

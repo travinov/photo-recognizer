@@ -9,7 +9,12 @@
             <a href="/" class="back-link">← Новый поиск</a>
             <h1>Результаты поиска</h1>
             <p class="muted">
-                Порог совпадения: {{ "%.2f"|format(threshold) }}. Чем меньше расстояние, тем ближе лицо к запросу.
+                Multi-engine проверка: {{ primary_engine_label }} ищет кандидатов,
+                {{ verify_engine_label }} подтверждает совпадение.
+            </p>
+            <p class="muted">
+                Порог {{ primary_engine_label }}: не ниже {{ "%.2f"|format(primary_threshold) }}.
+                Порог {{ verify_engine_label }}: не выше {{ "%.2f"|format(verify_threshold) }}.
             </p>
             <p class="muted">{{ query_context }}</p>
             {% if source_photo_id %}
@@ -40,7 +45,7 @@
                     <img src="{{ face.crop_url }}" alt="{{ face.label }}" class="query-face-head__image">
                     <div>
                         <h2>{{ face.label }}</h2>
-                        <p class="muted">Найдено совпадений: {{ face.matches|length }}</p>
+                        <p class="muted">Подтверждено совпадений: {{ face.matches|length }}</p>
                     </div>
                 </div>
             </div>
@@ -66,14 +71,18 @@
                                 <div class="muted">{{ match.label }}</div>
                             </div>
                         </div>
-                        <div class="match-score">Distance {{ "%.4f"|format(match.distance) }}</div>
+                        <div class="match-confidence match-confidence--{{ match.confidence }}">
+                            Уверенность: {{ match.confidence_label }}
+                        </div>
+                        <div class="match-score">{{ primary_engine_label }} {{ "%.4f"|format(match.primary_score) }}</div>
+                        <div class="match-score">{{ verify_engine_label }} {{ "%.4f"|format(match.verify_score) }}</div>
                     </div>
                 </a>
                 {% endfor %}
             </div>
             {% else %}
             <div class="empty-state">
-                Для {{ face.label }} подходящих совпадений в базе не найдено.
+                Для {{ face.label }} подтверждённых совпадений в базе не найдено.
             </div>
             {% endif %}
         </article>

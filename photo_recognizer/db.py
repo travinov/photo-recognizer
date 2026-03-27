@@ -29,8 +29,20 @@ CREATE TABLE IF NOT EXISTS faces (
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS face_embeddings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    face_id INTEGER NOT NULL,
+    engine TEXT NOT NULL,
+    embedding_json TEXT NOT NULL,
+    embedding_version TEXT NOT NULL,
+    FOREIGN KEY (face_id) REFERENCES faces(id) ON DELETE CASCADE,
+    UNIQUE(face_id, engine)
+);
+
 CREATE INDEX IF NOT EXISTS idx_faces_photo_id ON faces(photo_id);
 CREATE INDEX IF NOT EXISTS idx_faces_person_index ON faces(person_index);
+CREATE INDEX IF NOT EXISTS idx_face_embeddings_face_id ON face_embeddings(face_id);
+CREATE INDEX IF NOT EXISTS idx_face_embeddings_engine ON face_embeddings(engine);
 """
 
 
@@ -46,6 +58,7 @@ class FaceRepository:
         with self._connect() as connection:
             connection.executescript(
                 """
+                DROP TABLE IF EXISTS face_embeddings;
                 DROP TABLE IF EXISTS faces;
                 DROP TABLE IF EXISTS photos;
                 """
@@ -75,22 +88,30 @@ class FaceRepository:
     def replace_faces(self, photo_id: int, faces: list[dict[str, Any]]) -> None:
         with self._connect() as connection:
             connection.execute("DELETE FROM faces WHERE photo_id = ?", (photo_id,))
-            connection.executemany(
-                """
-                INSERT INTO faces (
-                    photo_id,
-                    person_index,
-                    label,
-                    top_px,
-                    right_px,
-                    bottom_px,
-                    left_px,
-                    crop_path,
-                    embedding_json
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
+
+            for face in faces:
+                embeddings = {
+                    engine: embedding
+                    for engine, embedding in face["embeddings"].items()
+                    if embedding is not None
+                }
+                embedding_versions = face.get("embedding_versions", {})
+                primary_embedding = next(iter(embeddings.values()), [])
+                cursor = connection.execute(
+                    """
+                    INSERT INTO faces (
+                        photo_id,
+                        person_index,
+                        label,
+                        top_px,
+                        right_px,
+                        bottom_px,
+                        left_px,
+                        crop_path,
+                        embedding_json
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
                     (
                         photo_id,
                         face["person_index"],
@@ -100,11 +121,28 @@ class FaceRepository:
                         face["bottom_px"],
                         face["left_px"],
                         face["crop_path"],
-                        json.dumps(face["embedding"]),
+                        json.dumps(primary_embedding),
+                    ),
+                )
+                face_id = int(cursor.lastrowid)
+                for engine, embedding in embeddings.items():
+                    connection.execute(
+                        """
+                        INSERT INTO face_embeddings (
+                            face_id,
+                            engine,
+                            embedding_json,
+                            embedding_version
+                        )
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (
+                            face_id,
+                            engine,
+                            json.dumps(embedding),
+                            str(embedding_versions.get(engine, "1")),
+                        ),
                     )
-                    for face in faces
-                ],
-            )
 
     def list_photos(self, limit: int = 60, offset: int = 0) -> list[sqlite3.Row]:
         with self._connect() as connection:
@@ -181,7 +219,6 @@ class FaceRepository:
                     f.bottom_px,
                     f.left_px,
                     f.crop_path,
-                    f.embedding_json,
                     p.relative_path,
                     p.width,
                     p.height
@@ -193,7 +230,29 @@ class FaceRepository:
             ).fetchone()
         return row
 
-    def list_indexed_faces(self) -> list[sqlite3.Row]:
+    def get_face_embeddings(self, face_id: int) -> dict[str, dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    engine,
+                    embedding_json,
+                    embedding_version
+                FROM face_embeddings
+                WHERE face_id = ?
+                """,
+                (face_id,),
+            ).fetchall()
+
+        return {
+            str(row["engine"]): {
+                "embedding": json.loads(row["embedding_json"]),
+                "version": str(row["embedding_version"]),
+            }
+            for row in rows
+        }
+
+    def list_indexed_faces_for_engine(self, engine: str) -> list[sqlite3.Row]:
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -207,16 +266,48 @@ class FaceRepository:
                     f.bottom_px,
                     f.left_px,
                     f.crop_path,
-                    f.embedding_json,
                     p.relative_path,
                     p.width,
-                    p.height
+                    p.height,
+                    fe.embedding_json,
+                    fe.embedding_version
                 FROM faces f
                 JOIN photos p ON p.id = f.photo_id
+                JOIN face_embeddings fe
+                    ON fe.face_id = f.id
+                    AND fe.engine = ?
                 ORDER BY p.relative_path, f.person_index
-                """
+                """,
+                (engine,),
             ).fetchall()
         return list(rows)
+
+    def get_embeddings_for_faces(self, face_ids: list[int], engine: str) -> dict[int, dict[str, Any]]:
+        if not face_ids:
+            return {}
+
+        placeholders = ", ".join("?" for _ in face_ids)
+        query = f"""
+            SELECT
+                face_id,
+                embedding_json,
+                embedding_version
+            FROM face_embeddings
+            WHERE engine = ?
+              AND face_id IN ({placeholders})
+        """
+        params: list[Any] = [engine, *face_ids]
+
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        return {
+            int(row["face_id"]): {
+                "embedding": json.loads(row["embedding_json"]),
+                "version": str(row["embedding_version"]),
+            }
+            for row in rows
+        }
 
     def get_stats(self) -> dict[str, int]:
         with self._connect() as connection:

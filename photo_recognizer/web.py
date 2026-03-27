@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -115,6 +114,28 @@ def create_app() -> FastAPI:
             source_photo_id=None,
         )
 
+    @app.post("/search/folder", response_class=HTMLResponse)
+    async def search_folder(request: Request, files: list[UploadFile] = File(...)) -> HTMLResponse:
+        uploaded_files: list[tuple[str, bytes]] = []
+        for file in files:
+            content = await file.read()
+            uploaded_files.append((file.filename or "image.jpg", content))
+
+        search_result = search_service.search_many(uploaded_files)
+        if search_result["photo_count"] == 0:
+            raise HTTPException(status_code=400, detail="No supported images were uploaded")
+
+        templates = request.app.state.templates
+        photos = [decorate_batch_result(photo, request) for photo in search_result["photos"]]
+        return templates.TemplateResponse(
+            request,
+            "folder_results.html",
+            {
+                "photos": photos,
+                "photo_count": search_result["photo_count"],
+            },
+        )
+
     return app
 
 
@@ -153,11 +174,44 @@ def render_search_results(
             "query_width": search_result["query_width"],
             "query_height": search_result["query_height"],
             "query_faces": query_faces,
-            "threshold": search_result["threshold"],
+            "primary_engine_label": search_result["primary_engine_label"],
+            "verify_engine_label": search_result["verify_engine_label"],
+            "primary_threshold": search_result["primary_threshold"],
+            "verify_threshold": search_result["verify_threshold"],
             "query_context": query_context,
             "source_photo_id": source_photo_id,
         },
     )
+
+
+def decorate_batch_result(photo: dict[str, object], request: Request) -> dict[str, object]:
+    return {
+        "filename": photo["filename"],
+        "query_image_url": storage_url(request, photo["query_path"]),
+        "query_width": photo["query_width"],
+        "query_height": photo["query_height"],
+        "primary_engine_label": photo["primary_engine_label"],
+        "verify_engine_label": photo["verify_engine_label"],
+        "primary_threshold": photo["primary_threshold"],
+        "verify_threshold": photo["verify_threshold"],
+        "query_faces": [
+            {
+                **face,
+                "box": face_box(face, photo["query_width"], photo["query_height"]),
+                "crop_url": storage_url(request, face["crop_path"]) if face["crop_path"] else None,
+                "matches": [
+                    {
+                        **match,
+                        "image_url": dataset_url(request, match["relative_path"]),
+                        "crop_url": storage_url(request, match["crop_path"]) if match["crop_path"] else None,
+                        "box": face_box(match, match["width"], match["height"]),
+                    }
+                    for match in face["matches"]
+                ],
+            }
+            for face in photo["query_faces"]
+        ],
+    }
 
 
 def dataset_url(request: Request, relative_path: str) -> str:

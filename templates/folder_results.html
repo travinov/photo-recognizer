@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Распознавание папки{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <a href="/" class="back-link">← Новый поиск</a>
+            <h1>Распознавание папки</h1>
+            <p class="muted">Обработано фотографий: {{ photo_count }}</p>
+        </div>
+    </div>
+</section>
+
+<section class="results-stack">
+    {% for photo in photos %}
+    <article class="panel">
+        <div class="section-head">
+            <div>
+                <h2>{{ photo.filename }}</h2>
+                <p class="muted">Найдено лиц: {{ photo.query_faces|length }}</p>
+                <p class="muted">
+                    {{ photo.primary_engine_label }} ищет кандидатов,
+                    {{ photo.verify_engine_label }} подтверждает совпадения.
+                </p>
+            </div>
+        </div>
+
+        <div class="viewer-layout">
+            <div class="viewer-card">
+                <div class="image-stage">
+                    <img src="{{ photo.query_image_url }}" alt="{{ photo.filename }}">
+                    {% for face in photo.query_faces %}
+                    <div
+                        class="face-box face-box--query"
+                        style="left: {{ face.box.left_pct }}%; top: {{ face.box.top_pct }}%; width: {{ face.box.width_pct }}%; height: {{ face.box.height_pct }}%;"
+                    ></div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <aside class="sidebar sidebar--wide">
+                {% if photo.query_faces %}
+                <div class="face-list">
+                    {% for face in photo.query_faces %}
+                    <div class="face-item face-item--stack">
+                        {% if face.crop_url %}
+                        <img src="{{ face.crop_url }}" alt="{{ face.label }}">
+                        {% endif %}
+                        <div class="face-item__body">
+                            <strong>{{ face.label }}</strong>
+                            <div class="muted">Подтверждено совпадений: {{ face.matches|length }}</div>
+                        </div>
+                        {% if face.matches %}
+                        <div class="mini-match-grid">
+                            {% for match in face.matches %}
+                            <a class="mini-match-card" href="/photo/{{ match.photo_id }}">
+                                <img src="{{ match.crop_url or match.image_url }}" alt="{{ match.label }}">
+                                <div class="mini-match-card__body">
+                                    <strong>{{ match.label }}</strong>
+                                    <span class="muted">{{ match.relative_path }}</span>
+                                    <span class="match-confidence match-confidence--{{ match.confidence }}">
+                                        {{ match.confidence_label }}
+                                    </span>
+                                </div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="empty-state">Подтверждённых совпадений не найдено.</div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="empty-state">На этом фото лица не найдены.</div>
+                {% endif %}
+            </aside>
+        </div>
+    </article>
+    {% endfor %}
+</section>
+{% endblock %}

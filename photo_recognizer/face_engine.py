@@ -7,11 +7,6 @@ from PIL import Image, ImageOps
 
 from photo_recognizer.models import DetectedFace
 
-try:
-    import face_recognition
-except ImportError:  # pragma: no cover
-    face_recognition = None
-
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -24,31 +19,6 @@ def iter_image_files(root: Path) -> list[Path]:
             if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
         ]
     )
-
-
-def detect_faces(image_path: Path, detection_model: str, max_image_size: int) -> tuple[int, int, list[DetectedFace]]:
-    require_face_recognition()
-
-    image_array, scale, original_width, original_height = load_image_array(image_path, max_image_size)
-    locations = face_recognition.face_locations(image_array, model=detection_model)
-    ordered_locations = sorted(locations, key=lambda location: (location[3], location[0]))
-    encodings = face_recognition.face_encodings(image_array, known_face_locations=ordered_locations)
-
-    faces: list[DetectedFace] = []
-    for person_index, (location, encoding) in enumerate(zip(ordered_locations, encodings), start=1):
-        top, right, bottom, left = location
-        faces.append(
-            DetectedFace(
-                person_index=person_index,
-                top=scale_coordinate(top, scale, original_height),
-                right=scale_coordinate(right, scale, original_width),
-                bottom=scale_coordinate(bottom, scale, original_height),
-                left=scale_coordinate(left, scale, original_width),
-                embedding=[float(value) for value in encoding.tolist()],
-            )
-        )
-
-    return original_width, original_height, faces
 
 
 def save_face_crop(image_path: Path, output_path: Path, top: int, right: int, bottom: int, left: int) -> None:
@@ -94,9 +64,22 @@ def scale_coordinate(value: int, scale: float, max_value: int) -> int:
     return max(0, min(max_value, scaled))
 
 
-def require_face_recognition() -> None:
-    if face_recognition is None:
-        raise RuntimeError(
-            "The 'face_recognition' package is not installed. "
-            "Install dependencies with 'pip install -r requirements.txt'."
-        )
+def resize_coordinate(value: int, scale: float, max_value: int) -> int:
+    if scale == 1.0:
+        return value
+    scaled = int(round(value * scale))
+    return max(0, min(max_value, scaled))
+
+
+def scaled_location_for_face(
+    face: DetectedFace,
+    scale: float,
+    resized_height: int,
+    resized_width: int,
+) -> tuple[int, int, int, int]:
+    return (
+        resize_coordinate(face.top, scale, resized_height),
+        resize_coordinate(face.right, scale, resized_width),
+        resize_coordinate(face.bottom, scale, resized_height),
+        resize_coordinate(face.left, scale, resized_width),
+    )

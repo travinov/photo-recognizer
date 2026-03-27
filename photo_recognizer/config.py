@@ -14,11 +14,19 @@ class Settings:
     images_dir: Path
     storage_dir: Path
     db_path: Path
+    insightface_root: Path
     query_upload_dir: Path
     face_crop_dir: Path
+    primary_engine: str
+    verify_engine: str
     detection_model: str
+    detection_upsample: int
     max_image_size: int
-    match_threshold: float
+    insightface_model: str
+    insightface_det_size: int
+    candidate_top_n: int
+    insightface_threshold: float
+    dlib_threshold: float
     top_k_matches: int
 
 
@@ -32,11 +40,26 @@ def load_settings() -> Settings:
         images_dir=images_dir,
         storage_dir=storage_dir,
         db_path=Path(os.getenv("PHOTO_RECOGNIZER_DB_PATH", storage_dir / "face_index.db")).resolve(),
+        insightface_root=Path(
+            os.getenv("PHOTO_RECOGNIZER_INSIGHTFACE_ROOT", Path.home() / ".insightface")
+        ).expanduser().resolve(),
         query_upload_dir=(storage_dir / "query_uploads").resolve(),
         face_crop_dir=(storage_dir / "face_crops").resolve(),
+        primary_engine=os.getenv("PHOTO_RECOGNIZER_PRIMARY_ENGINE", "insightface").strip().lower(),
+        verify_engine=os.getenv("PHOTO_RECOGNIZER_VERIFY_ENGINE", "dlib").strip().lower(),
         detection_model=os.getenv("PHOTO_RECOGNIZER_DETECTION_MODEL", "hog"),
+        detection_upsample=int(os.getenv("PHOTO_RECOGNIZER_DETECTION_UPSAMPLE", "3")),
         max_image_size=int(os.getenv("PHOTO_RECOGNIZER_MAX_IMAGE_SIZE", "1600")),
-        match_threshold=float(os.getenv("PHOTO_RECOGNIZER_MATCH_THRESHOLD", "0.48")),
+        insightface_model=os.getenv("PHOTO_RECOGNIZER_INSIGHTFACE_MODEL", "buffalo_l"),
+        insightface_det_size=int(os.getenv("PHOTO_RECOGNIZER_INSIGHTFACE_DET_SIZE", "640")),
+        candidate_top_n=int(os.getenv("PHOTO_RECOGNIZER_CANDIDATE_TOP_N", "30")),
+        insightface_threshold=float(os.getenv("PHOTO_RECOGNIZER_INSIGHTFACE_THRESHOLD", "0.35")),
+        dlib_threshold=float(
+            os.getenv(
+                "PHOTO_RECOGNIZER_DLIB_THRESHOLD",
+                os.getenv("PHOTO_RECOGNIZER_MATCH_THRESHOLD", "0.48"),
+            )
+        ),
         top_k_matches=int(os.getenv("PHOTO_RECOGNIZER_TOP_K", "12")),
     )
 
