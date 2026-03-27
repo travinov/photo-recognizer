@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}{{ photo.relative_path }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <a href="/" class="back-link">← Назад</a>
+            <h1>{{ photo.relative_path }}</h1>
+            <p class="muted">На фото найдено {{ photo.face_count }} лиц.</p>
+        </div>
+    </div>
+
+    <div class="viewer-layout">
+        <div class="viewer-card">
+            <div class="image-stage">
+                <img src="{{ photo.image_url }}" alt="{{ photo.relative_path }}">
+                {% for face in faces %}
+                <div
+                    class="face-box"
+                    style="left: {{ face.box.left_pct }}%; top: {{ face.box.top_pct }}%; width: {{ face.box.width_pct }}%; height: {{ face.box.height_pct }}%;"
+                ></div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <aside class="sidebar">
+            <h2>Найденные люди</h2>
+            <div class="face-list">
+                {% for face in faces %}
+                <div class="face-item">
+                    {% if face.crop_url %}
+                    <img src="{{ face.crop_url }}" alt="{{ face.label }}">
+                    {% endif %}
+                    <div class="face-item__body">
+                        <strong>{{ face.label }}</strong>
+                        <div class="muted">
+                            x={{ face.left_px }}, y={{ face.top_px }}
+                        </div>
+                        <a href="{{ face.search_url }}" class="inline-link">Найти похожие</a>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </aside>
+    </div>
+</section>
+{% endblock %}

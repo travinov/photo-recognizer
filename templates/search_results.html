@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Результаты поиска{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <a href="/" class="back-link">← Новый поиск</a>
+            <h1>Результаты поиска</h1>
+            <p class="muted">
+                Порог совпадения: {{ "%.2f"|format(threshold) }}. Чем меньше расстояние, тем ближе лицо к запросу.
+            </p>
+            <p class="muted">{{ query_context }}</p>
+            {% if source_photo_id %}
+            <p><a href="/photo/{{ source_photo_id }}" class="inline-link">Открыть исходную фотографию</a></p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="viewer-card">
+        <div class="image-stage">
+            <img src="{{ query_image_url }}" alt="Запрос">
+            {% for face in query_faces %}
+            <div
+                class="face-box face-box--query"
+                style="left: {{ face.box.left_pct }}%; top: {{ face.box.top_pct }}%; width: {{ face.box.width_pct }}%; height: {{ face.box.height_pct }}%;"
+            ></div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+<section class="results-stack">
+    {% if query_faces %}
+        {% for face in query_faces %}
+        <article class="panel">
+            <div class="section-head">
+                <div class="query-face-head">
+                    <img src="{{ face.crop_url }}" alt="{{ face.label }}" class="query-face-head__image">
+                    <div>
+                        <h2>{{ face.label }}</h2>
+                        <p class="muted">Найдено совпадений: {{ face.matches|length }}</p>
+                    </div>
+                </div>
+            </div>
+
+            {% if face.matches %}
+            <div class="match-grid">
+                {% for match in face.matches %}
+                <a class="match-card" href="/photo/{{ match.photo_id }}">
+                    <div class="match-card__preview">
+                        <img src="{{ match.image_url }}" alt="{{ match.relative_path }}">
+                        <div
+                            class="face-box face-box--match"
+                            style="left: {{ match.box.left_pct }}%; top: {{ match.box.top_pct }}%; width: {{ match.box.width_pct }}%; height: {{ match.box.height_pct }}%;"
+                        ></div>
+                    </div>
+                    <div class="match-card__body">
+                        <div class="match-card__meta">
+                            {% if match.crop_url %}
+                            <img src="{{ match.crop_url }}" alt="{{ match.label }}">
+                            {% endif %}
+                            <div>
+                                <strong>{{ match.relative_path }}</strong>
+                                <div class="muted">{{ match.label }}</div>
+                            </div>
+                        </div>
+                        <div class="match-score">Distance {{ "%.4f"|format(match.distance) }}</div>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                Для {{ face.label }} подходящих совпадений в базе не найдено.
+            </div>
+            {% endif %}
+        </article>
+        {% endfor %}
+    {% else %}
+    <section class="panel">
+        <div class="empty-state">
+            На загруженной фотографии лица не найдены. Попробуйте более крупное и резкое изображение.
+        </div>
+    </section>
+    {% endif %}
+</section>
+{% endblock %}

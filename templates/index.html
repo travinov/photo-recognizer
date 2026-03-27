@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}Photo Recognizer{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="panel__header">
+        <div>
+            <h1>Поиск человека по фотографии</h1>
+            <p class="muted">
+                Загрузите фотографию для поиска по лицам или введите
+                сквозной <strong>ID лица</strong>, если он уже известен.
+            </p>
+        </div>
+        <div class="stats">
+            <div class="stat-card">
+                <span class="stat-card__value">{{ stats.photo_count }}</span>
+                <span class="stat-card__label">Фото в индексе</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-card__value">{{ stats.face_count }}</span>
+                <span class="stat-card__label">Найдено лиц</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="search-tools">
+        <form class="upload-form upload-form--card" action="/search" method="post" enctype="multipart/form-data">
+            <label class="upload-field">
+                <span>Фотография для поиска</span>
+                <input type="file" name="file" accept=".jpg,.jpeg,.png,.webp" required>
+            </label>
+            <button type="submit" class="button">Найти людей</button>
+        </form>
+
+        <form class="upload-form upload-form--card" action="/search/face" method="get">
+            <label class="upload-field">
+                <span>Поиск по ID лица</span>
+                <input type="number" name="face_id" min="1" placeholder="Например, 292" required>
+            </label>
+            <button type="submit" class="button">Открыть лицо</button>
+        </form>
+    </div>
+
+    {% if not indexed %}
+    <div class="notice">
+        Индекс пока пуст. Сначала выполните индексацию командой
+        <code>python -m photo_recognizer.cli index</code>.
+    </div>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Фотографии в базе</h2>
+            <p class="muted">При открытии фотографии все найденные лица будут отмечены рамками.</p>
+        </div>
+        <p class="muted">
+            Показаны {{ pagination.start_item }}-{{ pagination.end_item }} из {{ pagination.total_items }}
+        </p>
+    </div>
+
+    {% if photos %}
+    <div class="photo-grid">
+        {% for photo in photos %}
+        <a class="photo-card" href="/photo/{{ photo.id }}">
+            <div class="photo-card__media">
+                <img src="{{ photo.image_url }}" alt="{{ photo.relative_path }}" loading="lazy">
+                <span class="photo-card__badge">{{ photo.face_count }} лиц</span>
+            </div>
+            <div class="photo-card__body">
+                <strong>{{ photo.relative_path }}</strong>
+                <span class="muted">{{ photo.width }} x {{ photo.height }}</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+
+    <div class="pager">
+        {% if pagination.has_prev %}
+        <a class="pager__link" href="/?page={{ pagination.prev_page }}">← Назад</a>
+        {% else %}
+        <span class="pager__link pager__link--disabled">← Назад</span>
+        {% endif %}
+
+        <span class="pager__status">Страница {{ pagination.current_page }} из {{ pagination.total_pages }}</span>
+
+        {% if pagination.has_next %}
+        <a class="pager__link" href="/?page={{ pagination.next_page }}">Вперёд →</a>
+        {% else %}
+        <span class="pager__link pager__link--disabled">Вперёд →</span>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state">После индексации здесь появится каталог фотографий.</div>
+    {% endif %}
+</section>
+{% endblock %}

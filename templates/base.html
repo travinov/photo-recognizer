@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Photo Recognizer{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+</head>
+<body>
+    <header class="hero">
+        <div class="hero__content">
+            <a href="/" class="brand">Photo Recognizer</a>
+            <p class="hero__text">
+                Поиск людей на фотографиях конференции, индексация нескольких лиц на одном снимке
+                и просмотр результата с выделением рамками.
+            </p>
+        </div>
+    </header>
+    <main class="page">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
