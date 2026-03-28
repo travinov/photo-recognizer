@@ -76,6 +76,8 @@
                         </div>
                         <div class="match-score">{{ primary_engine_label }} {{ "%.4f"|format(match.primary_score) }}</div>
                         <div class="match-score">{{ verify_engine_label }} {{ "%.4f"|format(match.verify_score) }}</div>
+                        <div class="match-score">Context {{ "%.4f"|format(match.context_score) }}</div>
+                        <div class="match-score">Итог {{ "%.4f"|format(match.final_score) }}</div>
                     </div>
                 </a>
                 {% endfor %}

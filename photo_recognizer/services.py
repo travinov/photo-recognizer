@@ -10,7 +10,8 @@ import numpy as np
 from photo_recognizer.config import Settings
 from photo_recognizer.db import FaceRepository
 from photo_recognizer.engines import FaceEngine, build_engine
-from photo_recognizer.face_engine import iter_image_files, load_image_array, save_face_crop
+from photo_recognizer.face_engine import iter_image_files, load_image_array, load_original_image_array, save_face_crop
+from photo_recognizer.face_features import build_face_context_features, compute_context_score, enrich_face_embeddings
 from photo_recognizer.models import DetectedFace
 
 
@@ -44,6 +45,7 @@ class IndexService:
             max_image_size=self.settings.max_image_size,
             primary_engine=self.primary_engine,
             verify_engine=self.verify_engine,
+            small_face_threshold=self.settings.small_face_threshold,
         )
 
         photo_id = self.repository.upsert_photo(relative_path=relative_path, width=width, height=height)
@@ -69,6 +71,7 @@ class IndexService:
                     "bottom_px": face.bottom,
                     "left_px": face.left,
                     "crop_path": crop_filename,
+                    "context": face.context_features,
                     "embeddings": face.embeddings,
                     "embedding_versions": {
                         self.primary_engine.name: self.primary_engine.embedding_version,
@@ -112,6 +115,7 @@ class SearchService:
             max_image_size=self.settings.max_image_size,
             primary_engine=self.primary_engine,
             verify_engine=self.verify_engine,
+            small_face_threshold=self.settings.small_face_threshold,
         )
 
         query_results: list[dict[str, object]] = []
@@ -126,7 +130,7 @@ class SearchService:
                 bottom=face.bottom,
                 left=face.left,
             )
-            matches = self._find_matches(face.embeddings)
+            matches = self._find_matches(face.embeddings, face.context_features)
             query_results.append(
                 {
                     "person_index": face.person_index,
@@ -201,6 +205,7 @@ class SearchService:
             "crop_path": query_face["crop_path"],
             "matches": self._find_matches(
                 query_embeddings,
+                json.loads(query_face["context_json"] or "{}"),
                 exclude_face_id=int(query_face["id"]),
             ),
         }
@@ -223,6 +228,7 @@ class SearchService:
     def _find_matches(
         self,
         query_embeddings: dict[str, list[float]],
+        query_context: dict[str, object] | None,
         exclude_face_id: int | None = None,
     ) -> list[dict[str, object]]:
         primary_embedding = query_embeddings.get(self.primary_engine.name)
@@ -269,11 +275,26 @@ class SearchService:
                 np.array(verify_embedding, dtype=np.float32),
                 np.array(verify_payload["embedding"], dtype=np.float32),
             )
+            candidate_context = json.loads(row["context_json"]) if row["context_json"] else {}
+            context_score, context_details = compute_context_score(query_context, candidate_context)
+            final_score = combined_match_score(
+                primary_score=primary_score,
+                verify_score=verify_score,
+                verify_threshold=self.settings.dlib_threshold,
+                context_score=context_score,
+            )
             confidence = classify_match(
                 primary_score=primary_score,
                 verify_score=verify_score,
+                context_score=context_score,
                 primary_threshold=self.settings.insightface_threshold,
                 verify_threshold=self.settings.dlib_threshold,
+                is_small_face=is_small_face_pair(
+                    query_context=query_context,
+                    candidate_context=candidate_context,
+                    small_face_threshold=self.settings.small_face_threshold,
+                ),
+                final_score=final_score,
             )
             if confidence == "rejected":
                 continue
@@ -296,6 +317,9 @@ class SearchService:
                 "confidence_label": build_confidence_label(confidence),
                 "primary_score": float(primary_score),
                 "verify_score": float(verify_score),
+                "context_score": float(context_score),
+                "final_score": float(final_score),
+                "context_details": context_details,
             }
 
             existing = matches_by_photo.get(photo_id)
@@ -311,8 +335,10 @@ def detect_faces_for_path(
     max_image_size: int,
     primary_engine: FaceEngine,
     verify_engine: FaceEngine,
+    small_face_threshold: int,
 ) -> tuple[int, int, list[DetectedFace]]:
     image_array, scale, original_width, original_height = load_image_array(image_path, max_image_size)
+    original_image_array = load_original_image_array(image_path)
     faces = primary_engine.detect_faces(
         image_array=image_array,
         scale=scale,
@@ -331,6 +357,17 @@ def detect_faces_for_path(
         for face, embedding in zip(faces, verify_embeddings):
             if embedding is not None:
                 face.embeddings[verify_engine.name] = embedding
+
+    if faces:
+        enrich_face_embeddings(
+            image_array=original_image_array,
+            faces=faces,
+            engines=[primary_engine, verify_engine],
+            small_face_threshold=small_face_threshold,
+        )
+        contexts = build_face_context_features(original_image_array, faces)
+        for face, context in zip(faces, contexts):
+            face.context_features = context
 
     return original_width, original_height, faces
 
@@ -357,8 +394,11 @@ def euclidean_distance(first: np.ndarray, second: np.ndarray) -> float:
 def classify_match(
     primary_score: float,
     verify_score: float,
+    context_score: float,
     primary_threshold: float,
     verify_threshold: float,
+    is_small_face: bool,
+    final_score: float,
 ) -> str:
     strong_primary_threshold = min(0.99, primary_threshold + 0.1)
     relaxed_verify_threshold = verify_threshold + 0.05
@@ -367,13 +407,29 @@ def classify_match(
         return "high"
     if primary_score >= primary_threshold and verify_score <= relaxed_verify_threshold:
         return "medium"
+    if (
+        is_small_face
+        and primary_score >= (primary_threshold - 0.08)
+        and verify_score <= (verify_threshold + 0.22)
+        and context_score >= 0.62
+        and final_score >= 0.64
+    ):
+        return "medium"
+    if (
+        primary_score >= (primary_threshold - 0.03)
+        and verify_score <= (verify_threshold + 0.1)
+        and context_score >= 0.78
+        and final_score >= 0.7
+    ):
+        return "medium"
     return "rejected"
 
 
-def match_sort_key(match: dict[str, object]) -> tuple[float, float, float]:
+def match_sort_key(match: dict[str, object]) -> tuple[float, float, float, float]:
     confidence_rank = 0 if match["confidence"] == "high" else 1
     return (
         float(confidence_rank),
+        -float(match["final_score"]),
         -float(match["primary_score"]),
         float(match["verify_score"]),
     )
@@ -394,3 +450,33 @@ def build_engine_label(engine: str) -> str:
 
 def build_confidence_label(confidence: str) -> str:
     return "Высокая" if confidence == "high" else "Средняя"
+
+
+def combined_match_score(
+    primary_score: float,
+    verify_score: float,
+    verify_threshold: float,
+    context_score: float,
+) -> float:
+    primary_component = max(0.0, min(1.0, (primary_score + 1.0) / 2.0))
+    verify_component = max(0.0, 1.0 - (verify_score / max(verify_threshold + 0.3, 0.01)))
+    return float((0.68 * primary_component) + (0.20 * verify_component) + (0.12 * context_score))
+
+
+def is_small_face_pair(
+    query_context: dict[str, object] | None,
+    candidate_context: dict[str, object] | None,
+    small_face_threshold: int,
+) -> bool:
+    if not query_context or not candidate_context:
+        return False
+
+    query_min_side = min(
+        int(query_context.get("face_width_px", small_face_threshold)),
+        int(query_context.get("face_height_px", small_face_threshold)),
+    )
+    candidate_min_side = min(
+        int(candidate_context.get("face_width_px", small_face_threshold)),
+        int(candidate_context.get("face_height_px", small_face_threshold)),
+    )
+    return min(query_min_side, candidate_min_side) < small_face_threshold

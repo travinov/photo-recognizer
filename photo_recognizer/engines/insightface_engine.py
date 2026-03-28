@@ -101,6 +101,17 @@ class InsightFaceEngine(FaceEngine):
 
         return embeddings
 
+    def embed_face_crop(self, image_array: np.ndarray) -> list[float] | None:
+        detections = self._get_analysis().get(image_array)
+        if not detections:
+            return None
+
+        detection = max(
+            detections,
+            key=lambda item: max(0.0, float(item.bbox[2] - item.bbox[0]) * float(item.bbox[3] - item.bbox[1])),
+        )
+        return self._extract_embedding(detection)
+
     def _get_analysis(self) -> FaceAnalysis:
         require_insightface()
         if self._analysis is None:

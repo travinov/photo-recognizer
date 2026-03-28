@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS faces (
     bottom_px INTEGER NOT NULL,
     left_px INTEGER NOT NULL,
     crop_path TEXT,
+    context_json TEXT NOT NULL DEFAULT '{}',
     embedding_json TEXT NOT NULL,
     FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
 );
@@ -53,6 +54,14 @@ class FaceRepository:
     def init_db(self) -> None:
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(faces)").fetchall()
+            }
+            if "context_json" not in columns:
+                connection.execute(
+                    "ALTER TABLE faces ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}'"
+                )
 
     def reset(self) -> None:
         with self._connect() as connection:
@@ -108,9 +117,10 @@ class FaceRepository:
                         bottom_px,
                         left_px,
                         crop_path,
+                        context_json,
                         embedding_json
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         photo_id,
@@ -121,6 +131,7 @@ class FaceRepository:
                         face["bottom_px"],
                         face["left_px"],
                         face["crop_path"],
+                        json.dumps(face.get("context", {})),
                         json.dumps(primary_embedding),
                     ),
                 )
@@ -219,6 +230,7 @@ class FaceRepository:
                     f.bottom_px,
                     f.left_px,
                     f.crop_path,
+                    f.context_json,
                     p.relative_path,
                     p.width,
                     p.height
@@ -266,6 +278,7 @@ class FaceRepository:
                     f.bottom_px,
                     f.left_px,
                     f.crop_path,
+                    f.context_json,
                     p.relative_path,
                     p.width,
                     p.height,

@@ -27,6 +27,7 @@ class Settings:
     candidate_top_n: int
     insightface_threshold: float
     dlib_threshold: float
+    small_face_threshold: int
     top_k_matches: int
 
 
@@ -60,6 +61,7 @@ def load_settings() -> Settings:
                 os.getenv("PHOTO_RECOGNIZER_MATCH_THRESHOLD", "0.48"),
             )
         ),
+        small_face_threshold=int(os.getenv("PHOTO_RECOGNIZER_SMALL_FACE_THRESHOLD", "80")),
         top_k_matches=int(os.getenv("PHOTO_RECOGNIZER_TOP_K", "12")),
     )
 

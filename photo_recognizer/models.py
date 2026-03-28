@@ -11,6 +11,7 @@ class DetectedFace:
     bottom: int
     left: int
     embeddings: dict[str, list[float]] = field(default_factory=dict)
+    context_features: dict[str, object] = field(default_factory=dict)
 
     @property
     def label(self) -> str:
@@ -18,3 +19,11 @@ class DetectedFace:
 
     def embedding_for(self, engine: str) -> list[float] | None:
         return self.embeddings.get(engine)
+
+    @property
+    def width(self) -> int:
+        return max(0, self.right - self.left)
+
+    @property
+    def height(self) -> int:
+        return max(0, self.bottom - self.top)

@@ -31,3 +31,7 @@ class FaceEngine(ABC):
         faces: list[DetectedFace],
     ) -> list[list[float] | None]:
         raise NotImplementedError
+
+    @abstractmethod
+    def embed_face_crop(self, image_array: np.ndarray) -> list[float] | None:
+        raise NotImplementedError

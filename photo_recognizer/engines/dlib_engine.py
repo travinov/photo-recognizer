@@ -83,6 +83,20 @@ class DlibFaceEngine(FaceEngine):
             return None
         return [float(value) for value in encodings[0].tolist()]
 
+    def embed_face_crop(self, image_array: np.ndarray) -> list[float] | None:
+        require_face_recognition()
+        upsample = 2 if min(int(image_array.shape[0]), int(image_array.shape[1])) < 160 else 1
+        locations = face_recognition.face_locations(
+            image_array,
+            number_of_times_to_upsample=upsample,
+            model=self.detection_model,
+        )
+        if not locations:
+            return None
+
+        largest = max(locations, key=lambda location: max(0, (location[2] - location[0]) * (location[1] - location[3])))
+        return self._encode_location(image_array, largest)
+
 
 def require_face_recognition() -> None:
     if face_recognition is None:

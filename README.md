@@ -16,6 +16,9 @@ Web-приложение для поиска людей на фотографи�
 - детекция нескольких лиц на одном фото;
 - сквозная нумерация лиц в базе вида `Лицо 1`, `Лицо 2`, `Лицо 292`;
 - multi-engine поиск похожих лиц через `InsightFace` + `dlib`;
+- preprocessing лица для сложных кейсов: upscale, sharpen, contrast normalization;
+- multi-crop и multi-variant embeddings для одного лица;
+- contextual rerank по одежде, texture, позиции в кадре и соседним лицам;
 - поиск по уже известному `ID лица`;
 - Web UI для просмотра фотографий, лиц и совпадений;
 - загрузка целой папки фотографий и пакетное распознавание;
@@ -41,6 +44,7 @@ Web-приложение для поиска людей на фотографи�
 - [photo_recognizer/services.py](photo_recognizer/services.py): индексация и поиск;
 - [photo_recognizer/db.py](photo_recognizer/db.py): работа с SQLite;
 - [photo_recognizer/face_engine.py](photo_recognizer/face_engine.py): общие операции над изображением и координатами;
+- [photo_recognizer/face_features.py](photo_recognizer/face_features.py): preprocessing, variant embeddings и contextual features;
 - [photo_recognizer/engines/](photo_recognizer/engines): registry и движки `insightface`/`dlib`;
 - [templates/](templates): HTML-шаблоны интерфейса;
 - [static/styles.css](static/styles.css): стили интерфейса.
@@ -50,7 +54,7 @@ Web-приложение для поиска людей на фотографи�
 Используются три основные таблицы:
 
 - `photos`: информация о фотографии;
-- `faces`: найденные лица на фото, координаты рамки и кроп лица;
+- `faces`: найденные лица на фото, координаты рамки, кроп и `context_json`;
 - `face_embeddings`: embeddings по движкам, где одна запись лица может иметь несколько независимых векторов.
 
 Связь `photos -> faces` это `one-to-many`, поэтому одна фотография может быть связана с несколькими людьми.
@@ -59,13 +63,23 @@ Web-приложение для поиска людей на фотографи�
 ### Как работает поиск
 
 1. Индексатор проходит по каталогу фотографий.
-2. `InsightFace` находит лица и сразу строит основной embedding для ranking-а.
+2. `InsightFace` находит лица и строит основной embedding для ranking-а.
 3. Для тех же рамок `dlib` строит независимый embedding для второй проверки.
-4. Координаты лица, кроп и embeddings обоих движков сохраняются в SQLite и `data/`.
-5. При поиске загруженная фотография или лицо из базы снова проходят через оба движка.
-6. `InsightFace` сравнивает запрос со всей базой и выбирает top-N кандидатов.
-7. Только эти кандидаты перепроверяются через `dlib`.
-8. В выдачу попадают только подтверждённые совпадения с меткой уверенности `Высокая` или `Средняя`.
+4. Для каждого лица дополнительно считаются variant embeddings по нескольким crop/transform версиям:
+   upscale, sharpen, autocontrast и более широкий crop.
+5. Для каждого лица собираются contextual features:
+   цветовая гистограмма одежды, texture signature, позиция в кадре и соседние лица.
+6. Координаты лица, кроп, `context_json` и embeddings обоих движков сохраняются в SQLite и `data/`.
+7. При поиске `InsightFace` сравнивает запрос со всей базой и выбирает top-N кандидатов.
+8. Только эти кандидаты перепроверяются через `dlib`, затем дополнительно rerank-ятся по context score.
+9. В выдачу попадают только подтверждённые совпадения с меткой уверенности `Высокая` или `Средняя`.
+
+### Что улучшает качество
+
+- отдельный slow path для маленьких лиц;
+- multi-crop embeddings вместо одного вектора на лицо;
+- preprocessing лица перед embedding;
+- contextual rerank, который не заменяет лицо, а только помогает упорядочить top candidates.
 
 ### Настройки multi-engine поиска
 
@@ -76,6 +90,7 @@ Web-приложение для поиска людей на фотографи�
 - `PHOTO_RECOGNIZER_CANDIDATE_TOP_N=30`
 - `PHOTO_RECOGNIZER_INSIGHTFACE_THRESHOLD=0.35`
 - `PHOTO_RECOGNIZER_DLIB_THRESHOLD=0.48`
+- `PHOTO_RECOGNIZER_SMALL_FACE_THRESHOLD=80`
 - `PHOTO_RECOGNIZER_INSIGHTFACE_ROOT=~/.insightface`
 - `PHOTO_RECOGNIZER_DETECTION_MODEL=hog`
 - `PHOTO_RECOGNIZER_DETECTION_UPSAMPLE=3`
@@ -100,9 +115,11 @@ Web-приложение для поиска людей на фотографи�
 ### Ограничения текущего решения
 
 - `InsightFace` в этом проекте настроен на CPU-first режим, поэтому полная переиндексация не мгновенная;
+- preprocessing и multi-crop indexing делают полную переиндексацию заметно тяжелее;
 - качество поиска зависит от качества исходных фотографий;
 - это поиск похожих лиц с multi-engine верификацией, а не полноценная identity-resolution система;
 - один и тот же человек на разных фотографиях пока не объединяется в отдельную сущность `Person`;
+- contextual признаки используются только как вспомогательный rerank, а не как основной идентификатор;
 - после перехода на новую схему embeddings нужна полная переиндексация базы.
 
 ## Структура проекта
@@ -112,6 +129,7 @@ photo_recognizer/
   config.py
   db.py
   face_engine.py
+  face_features.py
   engines/
   services.py
   web.py
@@ -133,6 +151,8 @@ CMAKE_GENERATOR=Ninja pip install -r requirements.txt
 Почему именно так:
 
 - `InsightFace` даёт более устойчивый ranking на профилях, мелких лицах и сложном свете;
+- дополнительный preprocessing и variant embeddings помогают на маленьких и сложных лицах;
+- contextual rerank помогает в топе кандидатов, когда чисто facial embedding шумный;
 - для `face_recognition` нужен `dlib`;
 - для `InsightFace` нужен `onnxruntime`;
 - при первом запуске `InsightFace` скачивает модель `buffalo_l` в `PHOTO_RECOGNIZER_INSIGHTFACE_ROOT`;
@@ -206,4 +226,5 @@ http://127.0.0.1:8000
 - работать с сотнями фотографий и сотнями лиц;
 - отображать страницы каталога;
 - открывать лицо по `ID`;
-- искать похожие лица как по загруженному изображению, так и по уже известному лицу из базы.
+- искать похожие лица как по загруженному изображению, так и по уже известному лицу из базы;
+- использовать preprocessing, multi-crop embeddings и contextual rerank на этапе поиска.
