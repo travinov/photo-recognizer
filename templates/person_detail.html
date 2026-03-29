@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}{{ person.display_name }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <a href="{{ scope.browse_url }}" class="back-link">← Назад к каталогу</a>
+            <h1>{{ person.display_name }}</h1>
+            <p class="muted">Подтверждено лиц: {{ person.confirmed_face_count }}</p>
+        </div>
+        {% if download_zip_url %}
+        <a class="button" href="{{ download_zip_url }}">Скачать все фото события</a>
+        {% endif %}
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Управление человеком</h2>
+            <p class="muted">Переименование профиля или удаление подтверждений.</p>
+        </div>
+    </div>
+
+    <div class="search-tools">
+        <form class="upload-form upload-form--card" action="{{ url_for('rename_person', person_id=person.id) }}" method="post">
+            <input type="hidden" name="redirect_to" value="{{ request.url }}">
+            <label class="upload-field">
+                <span>Имя человека</span>
+                <input type="text" name="display_name" value="{{ person.display_name }}" required>
+            </label>
+            <button type="submit" class="button">Сохранить имя</button>
+        </form>
+
+        <form class="upload-form upload-form--card" action="{{ url_for('delete_person', person_id=person.id) }}" method="post">
+            <input type="hidden" name="redirect_to" value="{{ delete_redirect_url }}">
+            <p class="muted">Профиль будет удалён, а лица останутся в базе без привязки.</p>
+            <button type="submit" class="button button--danger">Удалить человека</button>
+        </form>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Подтверждённые лица</h2>
+            <p class="muted">Лица, которыми подтверждён профиль человека.</p>
+        </div>
+    </div>
+
+    {% if confirmed_faces %}
+    <div class="face-list">
+        {% for face in confirmed_faces %}
+        <a class="face-item" href="{{ face.photo_url }}">
+            {% if face.crop_url %}
+            <img src="{{ face.crop_url }}" alt="{{ face.label }}">
+            {% endif %}
+            <div class="face-item__body">
+                <strong>{{ face.label }}</strong>
+                <div class="muted">{{ face.relative_path }}</div>
+                <div class="muted">{{ face.status_label }}</div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">В этом контексте нет подтверждённых лиц.</div>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Найденные фотографии</h2>
+            <p class="muted">Все фотографии выбранного человека в текущем контексте.</p>
+        </div>
+    </div>
+
+    {% if photos %}
+    <div class="match-grid">
+        {% for photo in photos %}
+        <div class="match-card">
+            <a class="match-card__preview" href="{{ photo.photo_url }}">
+                <img src="{{ photo.image_url }}" alt="{{ photo.relative_path }}">
+                <div
+                    class="face-box face-box--match"
+                    style="left: {{ photo.box.left_pct }}%; top: {{ photo.box.top_pct }}%; width: {{ photo.box.width_pct }}%; height: {{ photo.box.height_pct }}%;"
+                ></div>
+            </a>
+            <div class="match-card__body">
+                <div class="match-card__meta">
+                    {% if photo.crop_url %}
+                    <img src="{{ photo.crop_url }}" alt="{{ photo.label }}">
+                    {% endif %}
+                    <div>
+                        <strong>{{ photo.relative_path }}</strong>
+                        <div class="muted">{{ photo.label }}</div>
+                    </div>
+                </div>
+                <div class="match-confidence {% if photo.status_kind == 'confirmed' %}match-confidence--confirmed{% else %}match-confidence--{{ photo.confidence }}{% endif %}">
+                    {{ photo.status_label }}
+                </div>
+                <div class="card-actions">
+                    <a class="inline-link" href="{{ photo.photo_url }}">Открыть фото</a>
+                    <a class="inline-link" href="{{ photo.download_url }}">Скачать</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Фотографии этого человека в текущем контексте не найдены.</div>
+    {% endif %}
+</section>
+{% endblock %}

@@ -139,7 +139,8 @@ a {
     flex: 1 1 360px;
 }
 
-.upload-field input {
+.upload-field input,
+.upload-field select {
     width: 100%;
     padding: 14px;
     border: 1px solid rgba(79, 61, 48, 0.15);
@@ -158,6 +159,20 @@ a {
     cursor: pointer;
 }
 
+.button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.button--danger {
+    background: linear-gradient(135deg, #bf3b2d 0%, #8f2017 100%);
+}
+
+.button--small {
+    padding: 10px 14px;
+    font-size: 0.92rem;
+}
+
 .notice,
 .empty-state {
     margin-top: 20px;
@@ -174,8 +189,17 @@ a {
     gap: 18px;
 }
 
+.event-grid,
+.person-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 18px;
+}
+
 .photo-card,
-.match-card {
+.match-card,
+.event-card,
+.person-card {
     overflow: hidden;
     border-radius: 24px;
     background: rgba(255, 255, 255, 0.82);
@@ -185,7 +209,9 @@ a {
 }
 
 .photo-card:hover,
-.match-card:hover {
+.match-card:hover,
+.event-card:hover,
+.person-card:hover {
     transform: translateY(-4px);
     box-shadow: 0 18px 32px rgba(44, 28, 17, 0.12);
 }
@@ -242,6 +268,48 @@ a {
     flex: 0 0 360px;
 }
 
+.scope-nav,
+.card-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.scope-nav {
+    margin-top: 20px;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.84);
+    border: 1px solid rgba(79, 61, 48, 0.1);
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.pill--primary {
+    color: #fff;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+}
+
+.event-card,
+.person-card {
+    display: grid;
+    gap: 10px;
+    padding: 18px;
+}
+
+.event-card__stats {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
 .image-stage {
     position: relative;
     overflow: hidden;
@@ -295,6 +363,15 @@ a {
 .face-item--stack {
     display: grid;
     align-items: start;
+}
+
+.inline-form {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    margin-top: 8px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(79, 61, 48, 0.08);
 }
 
 .inline-link {
@@ -387,6 +464,11 @@ a {
 .match-confidence--medium {
     color: #7a4b0f;
     background: rgba(243, 173, 114, 0.22);
+}
+
+.match-confidence--confirmed {
+    color: #185adb;
+    background: rgba(24, 90, 219, 0.14);
 }
 
 .back-link {

@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}{{ scope.title }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <a href="{{ url_for('home') }}" class="back-link">← Список событий</a>
+            <h1>{{ scope.title }}</h1>
+            <p class="muted">{{ scope.subtitle }}</p>
+        </div>
+        <div class="stats">
+            <div class="stat-card">
+                <span class="stat-card__value">{{ stats.photo_count }}</span>
+                <span class="stat-card__label">Фото</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-card__value">{{ stats.face_count }}</span>
+                <span class="stat-card__label">Лиц</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-card__value">{{ stats.person_count }}</span>
+                <span class="stat-card__label">Людей</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="scope-nav">
+        <a class="pill {% if scope.kind == 'all' %}pill--primary{% endif %}" href="{{ url_for('library') }}">Все события</a>
+        {% for event in all_events %}
+        <a class="pill {% if scope.event_id == event.id %}pill--primary{% endif %}" href="{{ event.url }}">{{ event.name }}</a>
+        {% endfor %}
+    </div>
+
+    <div class="search-tools">
+        <form class="upload-form upload-form--card" action="{{ url_for('search') }}" method="post" enctype="multipart/form-data">
+            {% if scope.event_id %}
+            <input type="hidden" name="event_id" value="{{ scope.event_id }}">
+            {% endif %}
+            <label class="upload-field">
+                <span>Фотография для поиска</span>
+                <input type="file" name="file" accept=".jpg,.jpeg,.png,.webp" required>
+            </label>
+            <button type="submit" class="button">Найти по фото</button>
+        </form>
+
+        <form class="upload-form upload-form--card" action="{{ url_for('search_folder') }}" method="post" enctype="multipart/form-data">
+            {% if scope.event_id %}
+            <input type="hidden" name="event_id" value="{{ scope.event_id }}">
+            {% endif %}
+            <label class="upload-field">
+                <span>Папка для поиска</span>
+                <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp" webkitdirectory directory multiple required>
+            </label>
+            <button type="submit" class="button">Распознать папку</button>
+        </form>
+
+        <form class="upload-form upload-form--card" action="{{ url_for('search_face_by_id') }}" method="get">
+            {% if scope.event_id %}
+            <input type="hidden" name="event_id" value="{{ scope.event_id }}">
+            {% endif %}
+            <label class="upload-field">
+                <span>Открыть лицо по ID</span>
+                <input type="number" name="face_id" min="1" placeholder="Например, 292" required>
+            </label>
+            <button type="submit" class="button">Открыть лицо</button>
+        </form>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Импорт фотографий</h2>
+            <p class="muted">
+                {% if scope.event_id %}
+                Добавить папку фотографий в текущее событие.
+                {% else %}
+                Импорт возможен только в конкретное событие. Сначала создайте новое или выберите существующее.
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    {% if scope.event_id %}
+    <form class="upload-form" action="{{ url_for('import_event_photos') }}" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="event_id" value="{{ scope.event_id }}">
+        <label class="upload-field">
+            <span>Папка фотографий</span>
+            <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp" webkitdirectory directory multiple required>
+        </label>
+        <button type="submit" class="button">Импортировать в событие</button>
+    </form>
+    {% else %}
+    <form class="upload-form" action="{{ url_for('import_event_photos') }}" method="post" enctype="multipart/form-data">
+        <label class="upload-field">
+            <span>Название события</span>
+            <input type="text" name="new_event_name" placeholder="Например, TCF 2025" required>
+        </label>
+        <label class="upload-field">
+            <span>Дата события</span>
+            <input type="date" name="new_event_date">
+        </label>
+        <label class="upload-field">
+            <span>Папка фотографий</span>
+            <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp" webkitdirectory directory multiple required>
+        </label>
+        <button type="submit" class="button">Создать событие и импортировать</button>
+    </form>
+    {% endif %}
+</section>
+
+{% if current_event %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Управление событием</h2>
+            <p class="muted">Переименование и безопасное удаление текущего события.</p>
+        </div>
+    </div>
+
+    <div class="search-tools">
+        <form class="upload-form upload-form--card" action="{{ url_for('rename_event', event_id=current_event.id) }}" method="post">
+            <input type="hidden" name="redirect_to" value="{{ request.url }}">
+            <label class="upload-field">
+                <span>Название события</span>
+                <input type="text" name="name" value="{{ current_event.name }}" required>
+            </label>
+            <label class="upload-field">
+                <span>Дата события</span>
+                <input type="date" name="event_date" value="{{ current_event.event_date }}">
+            </label>
+            <button type="submit" class="button">Сохранить событие</button>
+        </form>
+
+        <form class="upload-form upload-form--card" action="{{ url_for('delete_event', event_id=current_event.id) }}" method="post">
+            <input type="hidden" name="redirect_to" value="{{ url_for('home') }}">
+            {% if current_event.is_default %}
+            <p class="muted">Базовое событие удалить нельзя.</p>
+            <button type="submit" class="button button--danger" disabled>Удалить событие</button>
+            {% elif current_event.photo_count > 0 %}
+            <p class="muted">Удаление доступно только для пустого события.</p>
+            <button type="submit" class="button button--danger" disabled>Удалить событие</button>
+            {% else %}
+            <p class="muted">Пустое событие будет удалено целиком.</p>
+            <button type="submit" class="button button--danger">Удалить событие</button>
+            {% endif %}
+        </form>
+    </div>
+</section>
+{% endif %}
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Люди</h2>
+            <p class="muted">Подтверждённые профили людей в текущем контексте.</p>
+        </div>
+    </div>
+
+    <form class="upload-form upload-form--card" action="{{ url_for('search_person_by_id') }}" method="get">
+        {% if scope.event_id %}
+        <input type="hidden" name="event_id" value="{{ scope.event_id }}">
+        {% endif %}
+        <label class="upload-field">
+            <span>Открыть человека по ID</span>
+            <input type="number" name="person_id" min="1" placeholder="Например, 1" required>
+        </label>
+        <button type="submit" class="button button--small">Открыть человека</button>
+    </form>
+
+    {% if all_persons %}
+    <div class="person-grid">
+        {% for person in all_persons %}
+        <a class="person-card" href="{{ person.url }}">
+            <strong>{{ person.display_name }}</strong>
+            <span class="muted">Подтверждено лиц: {{ person.confirmed_face_count }}</span>
+            <span class="muted">Подтверждено фото: {{ person.photo_count }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Пока нет подтверждённых профилей людей.</div>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Фотографии</h2>
+            <p class="muted">Каталог фотографий в выбранном контексте.</p>
+        </div>
+        <p class="muted">
+            Показаны {{ pagination.start_item }}-{{ pagination.end_item }} из {{ pagination.total_items }}
+        </p>
+    </div>
+
+    {% if photos %}
+    <div class="photo-grid">
+        {% for photo in photos %}
+        <div class="photo-card">
+            <a class="photo-card__media" href="{{ photo.photo_url }}">
+                <img src="{{ photo.image_url }}" alt="{{ photo.relative_path }}" loading="lazy">
+                <span class="photo-card__badge">{{ photo.face_count }} лиц</span>
+            </a>
+            <div class="photo-card__body">
+                <strong>{{ photo.relative_path }}</strong>
+                <span class="muted">{{ photo.width }} x {{ photo.height }}</span>
+                <div class="card-actions">
+                    <a class="inline-link" href="{{ photo.photo_url }}">Открыть</a>
+                    <a class="inline-link" href="{{ photo.download_url }}">Скачать</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="pager">
+        {% if pagination.has_prev %}
+        <a class="pager__link" href="{{ scope.browse_url }}?page={{ pagination.prev_page }}">← Назад</a>
+        {% else %}
+        <span class="pager__link pager__link--disabled">← Назад</span>
+        {% endif %}
+
+        <span class="pager__status">Страница {{ pagination.current_page }} из {{ pagination.total_pages }}</span>
+
+        {% if pagination.has_next %}
+        <a class="pager__link" href="{{ scope.browse_url }}?page={{ pagination.next_page }}">Вперёд →</a>
+        {% else %}
+        <span class="pager__link pager__link--disabled">Вперёд →</span>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="empty-state">Фотографии для этого контекста пока не проиндексированы.</div>
+    {% endif %}
+</section>
+{% endblock %}

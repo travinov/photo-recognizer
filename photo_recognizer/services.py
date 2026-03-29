@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 import numpy as np
@@ -28,17 +28,20 @@ class IndexService:
             self.repository.reset()
             self._reset_face_crops()
 
+        default_event_id = self.repository.get_or_create_default_event()
         photo_count = 0
         face_count = 0
 
         for image_path in iter_image_files(self.settings.images_dir):
-            indexed_faces = self.index_single_photo(image_path)
+            if self._is_runtime_import_path(image_path):
+                continue
+            indexed_faces = self.index_single_photo(image_path=image_path, event_id=default_event_id)
             photo_count += 1
             face_count += indexed_faces
 
         return {"photos_indexed": photo_count, "faces_indexed": face_count}
 
-    def index_single_photo(self, image_path: Path) -> int:
+    def index_single_photo(self, image_path: Path, event_id: int) -> int:
         relative_path = image_path.relative_to(self.settings.images_dir).as_posix()
         width, height, faces = detect_faces_for_path(
             image_path=image_path,
@@ -48,7 +51,12 @@ class IndexService:
             small_face_threshold=self.settings.small_face_threshold,
         )
 
-        photo_id = self.repository.upsert_photo(relative_path=relative_path, width=width, height=height)
+        photo_id = self.repository.upsert_photo(
+            relative_path=relative_path,
+            width=width,
+            height=height,
+            event_id=event_id,
+        )
         stored_faces: list[dict[str, object]] = []
 
         for face in faces:
@@ -83,10 +91,47 @@ class IndexService:
         self.repository.replace_faces(photo_id=photo_id, faces=stored_faces)
         return len(stored_faces)
 
+    def import_uploaded_files(
+        self,
+        event_id: int,
+        uploaded_files: list[tuple[str, bytes]],
+    ) -> dict[str, int]:
+        event_dir = self.settings.images_dir / "_events" / f"event_{event_id}"
+        event_dir.mkdir(parents=True, exist_ok=True)
+
+        photo_count = 0
+        face_count = 0
+        for filename, content in uploaded_files:
+            if not content or not is_supported_image_name(filename):
+                continue
+
+            output_path = self._store_event_photo(event_dir, filename, content)
+            indexed_faces = self.index_single_photo(image_path=output_path, event_id=event_id)
+            photo_count += 1
+            face_count += indexed_faces
+
+        return {"photos_indexed": photo_count, "faces_indexed": face_count}
+
+    def _store_event_photo(self, event_dir: Path, filename: str, content: bytes) -> Path:
+        relative_path = sanitize_upload_relative_path(filename)
+        target_dir = event_dir / relative_path.parent
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        candidate = target_dir / relative_path.name
+        if candidate.exists():
+            candidate = target_dir / f"{candidate.stem}_{uuid4().hex[:8]}{candidate.suffix.lower()}"
+
+        candidate.write_bytes(content)
+        return candidate
+
     def _reset_face_crops(self) -> None:
         if self.settings.face_crop_dir.exists():
             shutil.rmtree(self.settings.face_crop_dir)
         self.settings.face_crop_dir.mkdir(parents=True, exist_ok=True)
+
+    def _is_runtime_import_path(self, image_path: Path) -> bool:
+        parts = image_path.relative_to(self.settings.images_dir).parts
+        return len(parts) >= 2 and parts[0] == "_events"
 
 
 class SearchService:
@@ -106,10 +151,9 @@ class SearchService:
         return output_path
 
     def is_supported_image(self, filename: str | None) -> bool:
-        suffix = Path(filename or "").suffix.lower()
-        return suffix in {".jpg", ".jpeg", ".png", ".webp"}
+        return is_supported_image_name(filename)
 
-    def search(self, query_path: Path) -> dict[str, object]:
+    def search(self, query_path: Path, event_id: int | None = None) -> dict[str, object]:
         query_width, query_height, query_faces = detect_faces_for_path(
             image_path=query_path,
             max_image_size=self.settings.max_image_size,
@@ -130,7 +174,11 @@ class SearchService:
                 bottom=face.bottom,
                 left=face.left,
             )
-            matches = self._find_matches(face.embeddings, face.context_features)
+            matches = self._find_matches(
+                query_embeddings=face.embeddings,
+                query_context=face.context_features,
+                event_id=event_id,
+            )
             query_results.append(
                 {
                     "person_index": face.person_index,
@@ -149,15 +197,14 @@ class SearchService:
             "query_width": query_width,
             "query_height": query_height,
             "query_faces": query_results,
-            "primary_engine": self.primary_engine.name,
-            "verify_engine": self.verify_engine.name,
-            "primary_engine_label": build_engine_label(self.primary_engine.name),
-            "verify_engine_label": build_engine_label(self.verify_engine.name),
-            "primary_threshold": self.settings.insightface_threshold,
-            "verify_threshold": self.settings.dlib_threshold,
+            "event_id": event_id,
         }
 
-    def search_many(self, uploaded_files: list[tuple[str, bytes]]) -> dict[str, object]:
+    def search_many(
+        self,
+        uploaded_files: list[tuple[str, bytes]],
+        event_id: int | None = None,
+    ) -> dict[str, object]:
         photo_results: list[dict[str, object]] = []
 
         for filename, content in uploaded_files:
@@ -165,7 +212,7 @@ class SearchService:
                 continue
 
             stored_path = self.store_query_file(filename, content)
-            result = self.search(stored_path)
+            result = self.search(stored_path, event_id=event_id)
             photo_results.append(
                 {
                     "filename": filename,
@@ -173,10 +220,6 @@ class SearchService:
                     "query_width": result["query_width"],
                     "query_height": result["query_height"],
                     "query_faces": result["query_faces"],
-                    "primary_engine_label": result["primary_engine_label"],
-                    "verify_engine_label": result["verify_engine_label"],
-                    "primary_threshold": result["primary_threshold"],
-                    "verify_threshold": result["verify_threshold"],
                 }
             )
 
@@ -185,7 +228,7 @@ class SearchService:
             "photo_count": len(photo_results),
         }
 
-    def search_indexed_face(self, face_id: int) -> dict[str, object] | None:
+    def search_indexed_face(self, face_id: int, event_id: int | None = None) -> dict[str, object] | None:
         query_face = self.repository.get_face(face_id)
         if query_face is None:
             return None
@@ -204,9 +247,10 @@ class SearchService:
             "left_px": int(query_face["left_px"]),
             "crop_path": query_face["crop_path"],
             "matches": self._find_matches(
-                query_embeddings,
-                json.loads(query_face["context_json"] or "{}"),
-                exclude_face_id=int(query_face["id"]),
+                query_embeddings=query_embeddings,
+                query_context=json.loads(query_face["context_json"] or "{}"),
+                exclude_face_ids={int(query_face["id"])},
+                event_id=event_id,
             ),
         }
 
@@ -215,28 +259,66 @@ class SearchService:
             "query_width": int(query_face["width"]),
             "query_height": int(query_face["height"]),
             "query_faces": [query_face_result],
-            "primary_engine": self.primary_engine.name,
-            "verify_engine": self.verify_engine.name,
-            "primary_engine_label": build_engine_label(self.primary_engine.name),
-            "verify_engine_label": build_engine_label(self.verify_engine.name),
-            "primary_threshold": self.settings.insightface_threshold,
-            "verify_threshold": self.settings.dlib_threshold,
             "source_photo_id": int(query_face["photo_id"]),
             "source_relative_path": query_face["relative_path"],
+            "source_event_id": int(query_face["event_id"]),
+        }
+
+    def search_person(self, person_id: int, event_id: int | None = None) -> dict[str, object] | None:
+        person = self.repository.get_person(person_id)
+        if person is None:
+            return None
+
+        confirmed_faces_all = self.repository.get_person_faces(person_id)
+        if not confirmed_faces_all:
+            return None
+
+        confirmed_faces_for_scope = self.repository.get_person_faces(person_id, event_id=event_id)
+        aggregated_embeddings = aggregate_person_embeddings(
+            self.repository.get_person_profile_embeddings(person_id)
+        )
+        aggregated_context = aggregate_person_contexts(
+            self.repository.get_person_contexts(person_id)
+        )
+        matches = self._find_matches(
+            query_embeddings=aggregated_embeddings,
+            query_context=aggregated_context,
+            exclude_face_ids={int(face["id"]) for face in confirmed_faces_all},
+            event_id=event_id,
+        )
+        gallery = merge_person_gallery(
+            confirmed_faces=confirmed_faces_for_scope,
+            matches=matches,
+        )
+
+        return {
+            "person": {
+                "id": int(person["id"]),
+                "display_name": str(person["display_name"]),
+                "confirmed_face_count": int(person["confirmed_face_count"]),
+                "photo_count": int(person["photo_count"]),
+            },
+            "confirmed_faces": [build_confirmed_face_item(face) for face in confirmed_faces_for_scope],
+            "photos": gallery,
+            "event_id": event_id,
         }
 
     def _find_matches(
         self,
         query_embeddings: dict[str, list[float]],
         query_context: dict[str, object] | None,
-        exclude_face_id: int | None = None,
+        exclude_face_ids: set[int] | None = None,
+        event_id: int | None = None,
     ) -> list[dict[str, object]]:
         primary_embedding = query_embeddings.get(self.primary_engine.name)
         verify_embedding = query_embeddings.get(self.verify_engine.name)
         if primary_embedding is None or verify_embedding is None:
             return []
 
-        indexed_faces = self.repository.list_indexed_faces_for_engine(self.primary_engine.name)
+        indexed_faces = self.repository.list_indexed_faces_for_engine(
+            self.primary_engine.name,
+            event_id=event_id,
+        )
         if not indexed_faces:
             return []
 
@@ -244,13 +326,17 @@ class SearchService:
             [json.loads(row["embedding_json"]) for row in indexed_faces],
             dtype=np.float32,
         )
-        primary_scores = cosine_similarity(primary_vectors, np.array(primary_embedding, dtype=np.float32))
+        primary_scores = cosine_similarity(
+            primary_vectors,
+            np.array(primary_embedding, dtype=np.float32),
+        )
         ranked = sorted(enumerate(primary_scores), key=lambda item: float(item[1]), reverse=True)
 
+        excluded_ids = exclude_face_ids or set()
         candidate_rows: list[tuple[object, float]] = []
         for row_index, primary_score in ranked:
             row = indexed_faces[row_index]
-            if exclude_face_id is not None and int(row["id"]) == exclude_face_id:
+            if int(row["id"]) in excluded_ids:
                 continue
             if float(primary_score) < self.settings.insightface_threshold:
                 break
@@ -320,6 +406,10 @@ class SearchService:
                 "context_score": float(context_score),
                 "final_score": float(final_score),
                 "context_details": context_details,
+                "person_id": int(row["person_id"]) if row["person_id"] is not None else None,
+                "person_name": str(row["person_name"]) if row["person_name"] else None,
+                "status_label": build_confidence_label(confidence),
+                "status_kind": "match",
             }
 
             existing = matches_by_photo.get(photo_id)
@@ -370,6 +460,140 @@ def detect_faces_for_path(
             face.context_features = context
 
     return original_width, original_height, faces
+
+
+def sanitize_upload_relative_path(filename: str) -> Path:
+    relative = PurePosixPath(filename or f"upload_{uuid4().hex}.jpg")
+    safe_parts = [part for part in relative.parts if part not in {"", ".", ".."}]
+    if not safe_parts:
+        safe_parts = [f"upload_{uuid4().hex}.jpg"]
+
+    candidate = Path(*safe_parts)
+    suffix = candidate.suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+        candidate = candidate.with_suffix(".jpg")
+    return candidate
+
+
+def is_supported_image_name(filename: str | None) -> bool:
+    suffix = Path(filename or "").suffix.lower()
+    return suffix in {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def aggregate_person_embeddings(
+    embeddings_by_engine: dict[str, list[list[float]]],
+) -> dict[str, list[float]]:
+    aggregated: dict[str, list[float]] = {}
+    for engine, embeddings in embeddings_by_engine.items():
+        vectors = []
+        for embedding in embeddings:
+            vector = normalize_query_vector(np.array(embedding, dtype=np.float32))
+            if vector is not None:
+                vectors.append(vector)
+        if not vectors:
+            continue
+        centroid = np.mean(np.stack(vectors, axis=0), axis=0)
+        normalized = normalize_query_vector(centroid)
+        if normalized is not None:
+            aggregated[engine] = [float(value) for value in normalized.tolist()]
+    return aggregated
+
+
+def aggregate_person_contexts(contexts: list[dict[str, object]]) -> dict[str, object] | None:
+    if not contexts:
+        return None
+
+    vector_keys = [
+        "position_vector",
+        "neighbor_vector",
+        "clothing_histogram",
+        "texture_vector",
+    ]
+    aggregated: dict[str, object] = {}
+    for key in vector_keys:
+        values = [
+            np.array(context.get(key, []), dtype=np.float32)
+            for context in contexts
+            if context.get(key)
+        ]
+        if not values:
+            continue
+        width = max(int(value.shape[0]) for value in values)
+        padded = []
+        for value in values:
+            if int(value.shape[0]) < width:
+                value = np.pad(value, (0, width - int(value.shape[0])))
+            padded.append(value)
+        aggregated[key] = [float(item) for item in np.mean(np.stack(padded, axis=0), axis=0).tolist()]
+
+    if not aggregated:
+        return None
+
+    face_widths = [int(context.get("face_width_px", 0)) for context in contexts if context.get("face_width_px")]
+    face_heights = [int(context.get("face_height_px", 0)) for context in contexts if context.get("face_height_px")]
+    aggregated["face_width_px"] = int(round(sum(face_widths) / max(1, len(face_widths)))) if face_widths else 0
+    aggregated["face_height_px"] = int(round(sum(face_heights) / max(1, len(face_heights)))) if face_heights else 0
+    return aggregated
+
+
+def merge_person_gallery(
+    confirmed_faces: list[sqlite3_like_row],
+    matches: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    gallery: dict[int, dict[str, object]] = {}
+    for face in confirmed_faces:
+        photo_id = int(face["photo_id"])
+        gallery[photo_id] = {
+            "photo_id": photo_id,
+            "relative_path": face["relative_path"],
+            "width": int(face["width"]),
+            "height": int(face["height"]),
+            "face_id": int(face["id"]),
+            "person_index": int(face["person_index"]),
+            "label": build_indexed_face_label(int(face["id"])),
+            "top_px": int(face["top_px"]),
+            "right_px": int(face["right_px"]),
+            "bottom_px": int(face["bottom_px"]),
+            "left_px": int(face["left_px"]),
+            "crop_path": face["crop_path"],
+            "confidence": "high",
+            "confidence_label": "Подтверждено",
+            "status_label": "Подтверждено",
+            "status_kind": "confirmed",
+        }
+
+    for match in matches:
+        photo_id = int(match["photo_id"])
+        gallery.setdefault(photo_id, match)
+
+    return sorted(
+        gallery.values(),
+        key=lambda item: (
+            0 if item["status_kind"] == "confirmed" else 1,
+            str(item["relative_path"]),
+        ),
+    )
+
+
+def build_confirmed_face_item(face: sqlite3_like_row) -> dict[str, object]:
+    return {
+        "face_id": int(face["id"]),
+        "photo_id": int(face["photo_id"]),
+        "label": build_indexed_face_label(int(face["id"])),
+        "person_index": int(face["person_index"]),
+        "top_px": int(face["top_px"]),
+        "right_px": int(face["right_px"]),
+        "bottom_px": int(face["bottom_px"]),
+        "left_px": int(face["left_px"]),
+        "crop_path": face["crop_path"],
+        "relative_path": face["relative_path"],
+        "width": int(face["width"]),
+        "height": int(face["height"]),
+        "event_id": int(face["event_id"]),
+        "event_name": str(face["event_name"]),
+        "event_date": str(face["event_date"] or ""),
+        "status_label": "Подтверждено",
+    }
 
 
 def cosine_similarity(embeddings: np.ndarray, query_vector: np.ndarray) -> np.ndarray:
@@ -444,12 +668,8 @@ def build_indexed_face_label(face_id: int) -> str:
     return f"Лицо {face_id}"
 
 
-def build_engine_label(engine: str) -> str:
-    return "InsightFace" if engine == "insightface" else "dlib"
-
-
 def build_confidence_label(confidence: str) -> str:
-    return "Высокая" if confidence == "high" else "Средняя"
+    return "Высокое совпадение" if confidence == "high" else "Среднее совпадение"
 
 
 def combined_match_score(
@@ -480,3 +700,13 @@ def is_small_face_pair(
         int(candidate_context.get("face_height_px", small_face_threshold)),
     )
     return min(query_min_side, candidate_min_side) < small_face_threshold
+
+
+def normalize_query_vector(vector: np.ndarray) -> np.ndarray | None:
+    norm = float(np.linalg.norm(vector))
+    if norm <= 1e-8:
+        return None
+    return vector / norm
+
+
+sqlite3_like_row = object

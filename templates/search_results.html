@@ -6,19 +6,11 @@
 <section class="panel">
     <div class="section-head">
         <div>
-            <a href="/" class="back-link">← Новый поиск</a>
+            <a href="{{ scope.browse_url }}" class="back-link">← Вернуться</a>
             <h1>Результаты поиска</h1>
-            <p class="muted">
-                Multi-engine проверка: {{ primary_engine_label }} ищет кандидатов,
-                {{ verify_engine_label }} подтверждает совпадение.
-            </p>
-            <p class="muted">
-                Порог {{ primary_engine_label }}: не ниже {{ "%.2f"|format(primary_threshold) }}.
-                Порог {{ verify_engine_label }}: не выше {{ "%.2f"|format(verify_threshold) }}.
-            </p>
             <p class="muted">{{ query_context }}</p>
             {% if source_photo_id %}
-            <p><a href="/photo/{{ source_photo_id }}" class="inline-link">Открыть исходную фотографию</a></p>
+            <p><a href="{{ source_photo_url }}" class="inline-link">Открыть исходную фотографию</a></p>
             {% endif %}
         </div>
     </div>
@@ -42,10 +34,12 @@
         <article class="panel">
             <div class="section-head">
                 <div class="query-face-head">
+                    {% if face.crop_url %}
                     <img src="{{ face.crop_url }}" alt="{{ face.label }}" class="query-face-head__image">
+                    {% endif %}
                     <div>
                         <h2>{{ face.label }}</h2>
-                        <p class="muted">Подтверждено совпадений: {{ face.matches|length }}</p>
+                        <p class="muted">Найдено совпадений: {{ face.matches|length }}</p>
                     </div>
                 </div>
             </div>
@@ -53,14 +47,14 @@
             {% if face.matches %}
             <div class="match-grid">
                 {% for match in face.matches %}
-                <a class="match-card" href="/photo/{{ match.photo_id }}">
-                    <div class="match-card__preview">
+                <div class="match-card">
+                    <a class="match-card__preview" href="{{ match.photo_url }}">
                         <img src="{{ match.image_url }}" alt="{{ match.relative_path }}">
                         <div
                             class="face-box face-box--match"
                             style="left: {{ match.box.left_pct }}%; top: {{ match.box.top_pct }}%; width: {{ match.box.width_pct }}%; height: {{ match.box.height_pct }}%;"
                         ></div>
-                    </div>
+                    </a>
                     <div class="match-card__body">
                         <div class="match-card__meta">
                             {% if match.crop_url %}
@@ -72,19 +66,49 @@
                             </div>
                         </div>
                         <div class="match-confidence match-confidence--{{ match.confidence }}">
-                            Уверенность: {{ match.confidence_label }}
+                            {{ match.confidence_label }}
                         </div>
-                        <div class="match-score">{{ primary_engine_label }} {{ "%.4f"|format(match.primary_score) }}</div>
-                        <div class="match-score">{{ verify_engine_label }} {{ "%.4f"|format(match.verify_score) }}</div>
-                        <div class="match-score">Context {{ "%.4f"|format(match.context_score) }}</div>
-                        <div class="match-score">Итог {{ "%.4f"|format(match.final_score) }}</div>
+                        <div class="card-actions">
+                            <a class="inline-link" href="{{ match.photo_url }}">Открыть</a>
+                            <a class="inline-link" href="{{ match.download_url }}">Скачать</a>
+                            {% if match.person_url %}
+                            <a class="inline-link" href="{{ match.person_url }}">Открыть человека</a>
+                            {% endif %}
+                        </div>
+
+                        {% if not match.person_id %}
+                        <form class="inline-form" action="{{ url_for('create_person_from_face', face_id=match.face_id) }}" method="post">
+                            <input type="hidden" name="redirect_to" value="{{ request.url }}">
+                            <label class="upload-field">
+                                <span>Создать человека</span>
+                                <input type="text" name="display_name" placeholder="Например, Я" required>
+                            </label>
+                            <button type="submit" class="button button--small">Создать</button>
+                        </form>
+
+                        {% if all_persons %}
+                        <form class="inline-form" action="{{ url_for('attach_face_to_person_form', face_id=match.face_id) }}" method="post">
+                            <input type="hidden" name="redirect_to" value="{{ request.url }}">
+                            <label class="upload-field">
+                                <span>Добавить к человеку</span>
+                                <select name="person_id" required>
+                                    <option value="">Выберите человека</option>
+                                    {% for person in all_persons %}
+                                    <option value="{{ person.id }}">{{ person.display_name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <button type="submit" class="button button--small">Добавить</button>
+                        </form>
+                        {% endif %}
+                        {% endif %}
                     </div>
-                </a>
+                </div>
                 {% endfor %}
             </div>
             {% else %}
             <div class="empty-state">
-                Для {{ face.label }} подтверждённых совпадений в базе не найдено.
+                Для {{ face.label }} совпадений в базе не найдено.
             </div>
             {% endif %}
         </article>

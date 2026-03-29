@@ -6,10 +6,12 @@
 <section class="panel">
     <div class="section-head">
         <div>
-            <a href="/" class="back-link">← Назад</a>
+            <a href="{{ scope.browse_url }}" class="back-link">← Назад к каталогу</a>
             <h1>{{ photo.relative_path }}</h1>
+            <p class="muted">{{ photo.event_name }}{% if photo.event_date %} · {{ photo.event_date }}{% endif %}</p>
             <p class="muted">На фото найдено {{ photo.face_count }} лиц.</p>
         </div>
+        <a href="{{ download_url }}" class="button">Скачать фото</a>
     </div>
 
     <div class="viewer-layout">
@@ -25,21 +27,49 @@
             </div>
         </div>
 
-        <aside class="sidebar">
-            <h2>Найденные люди</h2>
+        <aside class="sidebar sidebar--wide">
+            <h2>Найденные лица</h2>
             <div class="face-list">
                 {% for face in faces %}
-                <div class="face-item">
+                <div class="face-item face-item--stack">
                     {% if face.crop_url %}
                     <img src="{{ face.crop_url }}" alt="{{ face.label }}">
                     {% endif %}
                     <div class="face-item__body">
                         <strong>{{ face.label }}</strong>
-                        <div class="muted">
-                            x={{ face.left_px }}, y={{ face.top_px }}
+                        <div class="muted">x={{ face.left_px }}, y={{ face.top_px }}</div>
+                        <div class="card-actions">
+                            <a href="{{ face.search_url }}" class="inline-link">Найти похожие</a>
+                            {% if face.person_url %}
+                            <a href="{{ face.person_url }}" class="inline-link">Открыть человека</a>
+                            {% endif %}
                         </div>
-                        <a href="{{ face.search_url }}" class="inline-link">Найти похожие</a>
                     </div>
+
+                    <form class="inline-form" action="{{ url_for('create_person_from_face', face_id=face.id) }}" method="post">
+                        <input type="hidden" name="redirect_to" value="{{ request.url }}">
+                        <label class="upload-field">
+                            <span>Создать человека</span>
+                            <input type="text" name="display_name" placeholder="Например, Я" required>
+                        </label>
+                        <button type="submit" class="button button--small">Создать</button>
+                    </form>
+
+                    {% if all_persons %}
+                    <form class="inline-form" action="{{ url_for('attach_face_to_person_form', face_id=face.id) }}" method="post">
+                        <input type="hidden" name="redirect_to" value="{{ request.url }}">
+                        <label class="upload-field">
+                            <span>Добавить к человеку</span>
+                            <select name="person_id" required>
+                                <option value="">Выберите человека</option>
+                                {% for person in all_persons %}
+                                <option value="{{ person.id }}">{{ person.display_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <button type="submit" class="button button--small">Добавить</button>
+                    </form>
+                    {% endif %}
                 </div>
                 {% endfor %}
             </div>

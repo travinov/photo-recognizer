@@ -6,7 +6,7 @@
 <section class="panel">
     <div class="section-head">
         <div>
-            <a href="/" class="back-link">← Новый поиск</a>
+            <a href="{{ scope.browse_url }}" class="back-link">← Вернуться</a>
             <h1>Распознавание папки</h1>
             <p class="muted">Обработано фотографий: {{ photo_count }}</p>
         </div>
@@ -20,10 +20,6 @@
             <div>
                 <h2>{{ photo.filename }}</h2>
                 <p class="muted">Найдено лиц: {{ photo.query_faces|length }}</p>
-                <p class="muted">
-                    {{ photo.primary_engine_label }} ищет кандидатов,
-                    {{ photo.verify_engine_label }} подтверждает совпадения.
-                </p>
             </div>
         </div>
 
@@ -50,25 +46,58 @@
                         {% endif %}
                         <div class="face-item__body">
                             <strong>{{ face.label }}</strong>
-                            <div class="muted">Подтверждено совпадений: {{ face.matches|length }}</div>
+                            <div class="muted">Найдено совпадений: {{ face.matches|length }}</div>
                         </div>
                         {% if face.matches %}
                         <div class="mini-match-grid">
                             {% for match in face.matches %}
-                            <a class="mini-match-card" href="/photo/{{ match.photo_id }}">
-                                <img src="{{ match.crop_url or match.image_url }}" alt="{{ match.label }}">
+                            <div class="mini-match-card">
+                                <a href="{{ match.photo_url }}">
+                                    <img src="{{ match.crop_url or match.image_url }}" alt="{{ match.label }}">
+                                </a>
                                 <div class="mini-match-card__body">
                                     <strong>{{ match.label }}</strong>
                                     <span class="muted">{{ match.relative_path }}</span>
                                     <span class="match-confidence match-confidence--{{ match.confidence }}">
                                         {{ match.confidence_label }}
                                     </span>
+                                    <div class="card-actions">
+                                        <a class="inline-link" href="{{ match.photo_url }}">Открыть</a>
+                                        <a class="inline-link" href="{{ match.download_url }}">Скачать</a>
+                                    </div>
+                                    {% if match.person_url %}
+                                    <a class="inline-link" href="{{ match.person_url }}">Открыть человека</a>
+                                    {% else %}
+                                    <form class="inline-form" action="{{ url_for('create_person_from_face', face_id=match.face_id) }}" method="post">
+                                        <input type="hidden" name="redirect_to" value="{{ request.url }}">
+                                        <label class="upload-field">
+                                            <span>Создать человека</span>
+                                            <input type="text" name="display_name" placeholder="Например, Я" required>
+                                        </label>
+                                        <button type="submit" class="button button--small">Создать</button>
+                                    </form>
+                                    {% if all_persons %}
+                                    <form class="inline-form" action="{{ url_for('attach_face_to_person_form', face_id=match.face_id) }}" method="post">
+                                        <input type="hidden" name="redirect_to" value="{{ request.url }}">
+                                        <label class="upload-field">
+                                            <span>Добавить к человеку</span>
+                                            <select name="person_id" required>
+                                                <option value="">Выберите человека</option>
+                                                {% for person in all_persons %}
+                                                <option value="{{ person.id }}">{{ person.display_name }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </label>
+                                        <button type="submit" class="button button--small">Добавить</button>
+                                    </form>
+                                    {% endif %}
+                                    {% endif %}
                                 </div>
-                            </a>
+                            </div>
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="empty-state">Подтверждённых совпадений не найдено.</div>
+                        <div class="empty-state">Совпадений не найдено.</div>
                         {% endif %}
                     </div>
                     {% endfor %}

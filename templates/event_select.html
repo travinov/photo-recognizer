@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Выбор события{% endblock %}
+
+{% block content %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h1>Выбор события</h1>
+            <p class="muted">Выберите событие для просмотра и поиска или откройте режим по всей базе.</p>
+        </div>
+        <a class="pill pill--primary" href="{{ library_url }}">Все события</a>
+    </div>
+
+    {% if has_events %}
+    <div class="event-grid">
+        {% for event in events %}
+        <a class="event-card" href="{{ event.url }}">
+            <strong>{{ event.name }}</strong>
+            {% if event.is_default %}
+            <span class="pill">Базовое событие</span>
+            {% endif %}
+            <span class="muted">{{ event.event_date or "Без даты" }}</span>
+            <div class="event-card__stats">
+                <span>{{ event.photo_count }} фото</span>
+                <span>{{ event.face_count }} лиц</span>
+                <span>{{ event.person_count }} человек</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">Событий пока нет. Создайте первое событие и импортируйте фотографии.</div>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Новое событие</h2>
+            <p class="muted">Создайте событие заранее или сразу импортируйте в него папку фотографий.</p>
+        </div>
+    </div>
+
+    <div class="search-tools">
+        <form class="upload-form upload-form--card" action="{{ url_for('create_event') }}" method="post">
+            <label class="upload-field">
+                <span>Название события</span>
+                <input type="text" name="name" placeholder="Например, TCF 2025" required>
+            </label>
+            <label class="upload-field">
+                <span>Дата события</span>
+                <input type="date" name="event_date">
+            </label>
+            <button type="submit" class="button">Создать событие</button>
+        </form>
+
+        <form class="upload-form upload-form--card" action="{{ url_for('import_event_photos') }}" method="post" enctype="multipart/form-data">
+            <label class="upload-field">
+                <span>Название нового события</span>
+                <input type="text" name="new_event_name" placeholder="Например, TCF 2025" required>
+            </label>
+            <label class="upload-field">
+                <span>Дата события</span>
+                <input type="date" name="new_event_date">
+            </label>
+            <label class="upload-field">
+                <span>Папка с фотографиями</span>
+                <input type="file" name="files" accept=".jpg,.jpeg,.png,.webp" webkitdirectory directory multiple required>
+            </label>
+            <button type="submit" class="button">Создать и импортировать</button>
+        </form>
+    </div>
+</section>
+{% endblock %}
